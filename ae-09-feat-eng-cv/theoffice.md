@@ -80,11 +80,11 @@ office_lines <- theoffice %>%
     lines_jim = sum(character == "Jim") / n_lines,
     lines_pam = sum(character == "Pam") / n_lines,
     lines_michael = sum(character == "Michael") / n_lines,
-    lines_dwight = sum(character == "Dwight") / n_lines
+    lines_dwight = sum(character == "Dwight") / n_lines,
   ) %>%
   ungroup() %>%
-  select(episode_name, contains("lines_")) %>%
-  distinct(episode_name, .keep_all = TRUE)
+  select(season, episode, episode_name, contains("lines_")) %>%
+  distinct(season, episode, episode_name, .keep_all = TRUE)
 ```
 
 ### Exercise 2 - Identify episodes that touch on Halloween, Valentine’s Day, and Christmas.
@@ -94,21 +94,21 @@ theoffice <- theoffice %>%
   mutate(text = tolower(text))
 
 halloween_episodes <- theoffice %>%
-  filter(str_detect(text, "halloween")) %>%
+  filter(str_detect(text, "halloween")) %>% 
   count(episode_name) %>%
   filter(n > 1) %>%
   mutate(halloween = 1) %>%
   select(-n)
 
-valentines_episodes <- theoffice %>%
-  filter(str_detect(text, "valentine")) %>%
+valentine_episodes <- theoffice %>%
+  filter(str_detect(text, "valentine")) %>% 
   count(episode_name) %>%
   filter(n > 1) %>%
-  mutate(valentines = 1) %>%
+  mutate(valentine = 1) %>%
   select(-n)
 
 christmas_episodes <- theoffice %>%
-  filter(str_detect(text, "christmas")) %>%
+  filter(str_detect(text, "christmas")) %>% 
   count(episode_name) %>%
   filter(n > 1) %>%
   mutate(christmas = 1) %>%
@@ -121,19 +121,14 @@ christmas_episodes <- theoffice %>%
 office_df <- theoffice %>%
   select(season, episode, episode_name, imdb_rating, total_votes, air_date) %>%
   distinct(season, episode, .keep_all = TRUE) %>%
-  left_join(halloween_episodes) %>%
-  left_join(valentines_episodes) %>%
-  left_join(christmas_episodes) %>%
-  replace_na(list(halloween = 0, valentines = 0, christmas = 0)) %>%
-  mutate(across(c(halloween, valentines, christmas), as.factor)) %>%
-  left_join(office_lines) %>%
-  mutate(michael = as.factor(if_else(season < 8, 1, 0)))
+  left_join(halloween_episodes, by = "episode_name") %>% 
+  left_join(valentine_episodes, by = "episode_name") %>% 
+  left_join(christmas_episodes, by = "episode_name") %>% 
+  replace_na(list(halloween = 0, valentine = 0, christmas = 0)) %>%
+  mutate(michael = if_else(season > 7, 0, 1)) %>%
+  mutate(across(halloween:michael, as.factor)) %>%
+  left_join(office_lines, by = c("season", "episode", "episode_name"))
 ```
-
-    ## Joining, by = "episode_name"
-    ## Joining, by = "episode_name"
-    ## Joining, by = "episode_name"
-    ## Joining, by = "episode_name"
 
 ### Exercise 4 - Split the data into training (75%) and testing (25%).
 
@@ -141,11 +136,8 @@ office_df <- theoffice %>%
 set.seed(1122)
 office_split <- initial_split(office_df)
 office_train <- training(office_split)
-office_test  <- testing(office_split)
-dim(office_train)
+office_test <- testing(office_split)
 ```
-
-    ## [1] 140  14
 
 ### Exercise 5 - Specify a linear regression model.
 
@@ -154,11 +146,11 @@ office_mod <- linear_reg() %>%
   set_engine("lm")
 ```
 
-### Exercise 6 - Create a recipe that updates the role of `episode_name` to not be a predictor, removes `air_date` as a predictor, uses `season` as a factor, and removes all zero variance predictors.
+### Exercise 6 - Create a recipe that updates the role of `episode_name` to not be a predictor, removes `air_date` as a predictor, and removes all zero variance predictors.
 
 ``` r
 office_rec <- recipe(imdb_rating ~ ., data = office_train) %>%
-  update_role(episode_name, new_role = "ID") %>%
+  update_role(episode_name, new_role = "id") %>%
   step_rm(air_date) %>%
   step_dummy(all_nominal(), -episode_name) %>%
   step_zv(all_predictors())
@@ -193,7 +185,7 @@ tidy(office_fit)
     ##  7 lines_michael -0.743    0.623      -1.19    2.35e- 1
     ##  8 lines_dwight   0.348    0.545       0.639   5.24e- 1
     ##  9 halloween_X1  -0.183    0.180      -1.01    3.12e- 1
-    ## 10 valentines_X1 -0.120    0.158      -0.759   4.49e- 1
+    ## 10 valentine_X1  -0.120    0.158      -0.759   4.49e- 1
     ## 11 christmas_X1   0.246    0.137       1.79    7.56e- 2
     ## 12 michael_X1     0.598    0.166       3.61    4.43e- 4
 
@@ -234,8 +226,9 @@ collect_metrics(office_fit_rs)
 #### New model
 
 ``` r
-office_test_pred <- predict(office_fit, office_test) %>%
+office_test_pred <- predict(office_fit, new_data = office_test) %>%
   bind_cols(office_test %>% select(imdb_rating, episode_name))
+
 rmse(office_test_pred, truth = imdb_rating, estimate = .pred)
 ```
 
@@ -286,8 +279,9 @@ tidy(office_fit_old)
     ## 12 air_date_month_Dec  0.368    0.145         2.54  1.23e- 2
 
 ``` r
-office_test_pred_old <- predict(office_fit_old, office_test) %>%
+office_test_pred_old <- predict(office_fit_old, new_data = office_test) %>%
   bind_cols(office_test %>% select(imdb_rating, episode_name))
+
 rmse(office_test_pred_old, truth = imdb_rating, estimate = .pred)
 ```
 
